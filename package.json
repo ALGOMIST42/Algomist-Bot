@@ -16,6 +16,10 @@
     "backup:drill": "node scripts/restore-drill.js"
   },
   "dependencies": {
+    "yahoo-finance2": "^2.11.3",
+    "chart.js": "^4.4.4", 
+    "chartjs-node-canvas": "^4.1.6", 
+    "node-cron": "^3.0.3",
     "@discordjs/rest": "^2.6.1",
     "axios": "^1.15.2",
     "discord.js": "^14.26.4",
