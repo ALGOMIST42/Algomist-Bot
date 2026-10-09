@@ -13,34 +13,63 @@ const QUICKCHART_URL = "https://quickchart.io/chart";
 const WIDTH = 1200;
 const HEIGHT = 650;
 
+// Yahoo Finance's unofficial API occasionally rate-limits requests coming
+// from cloud/datacenter IPs (like Railway's) with a plain-text "Too Many
+// Requests" response instead of JSON, which crashes the library's own
+// JSON parser. Retrying after a short delay almost always succeeds once
+// the rate limit window passes.
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 4000;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Pulls the last few days of 1-minute bars for the S&P 500 and returns
  * only the bars belonging to the most recent trading day present in the
- * data (so weekends/holidays are naturally skipped).
+ * data (so weekends/holidays are naturally skipped). Retries a few times
+ * on transient failures (e.g. Yahoo Finance rate-limiting) before giving
+ * up.
  */
 async function fetchLatestSessionBars() {
-  const period2 = new Date();
-  const period1 = new Date(period2.getTime() - 5 * 24 * 60 * 60 * 1000); // 5 days back
+  let lastError;
 
-  const result = await yahooFinance.chart("^GSPC", {
-    period1,
-    period2,
-    interval: "1m",
-  });
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const period2 = new Date();
+      const period1 = new Date(period2.getTime() - 5 * 24 * 60 * 60 * 1000); // 5 days back
 
-  const quotes = (result.quotes || []).filter(
-    (q) => q.close != null && q.high != null && q.low != null && q.volume != null
-  );
+      const result = await yahooFinance.chart("^GSPC", {
+        period1,
+        period2,
+        interval: "1m",
+      });
 
-  if (quotes.length === 0) {
-    throw new Error("No 1-minute quote data returned for ^GSPC.");
+      const quotes = (result.quotes || []).filter(
+        (q) => q.close != null && q.high != null && q.low != null && q.volume != null
+      );
+
+      if (quotes.length === 0) {
+        throw new Error("No 1-minute quote data returned for ^GSPC.");
+      }
+
+      // Group by calendar date (based on the exchange timestamp) and keep
+      // only the most recent date's bars.
+      const dateKey = (d) => new Date(d).toISOString().slice(0, 10);
+      const lastDate = dateKey(quotes[quotes.length - 1].date);
+      return quotes.filter((q) => dateKey(q.date) === lastDate);
+    } catch (error) {
+      lastError = error;
+      if (attempt < MAX_RETRIES) {
+        await sleep(RETRY_DELAY_MS * attempt); // 4s, then 8s
+      }
+    }
   }
 
-  // Group by calendar date (based on the exchange timestamp) and keep only
-  // the most recent date's bars.
-  const dateKey = (d) => new Date(d).toISOString().slice(0, 10);
-  const lastDate = dateKey(quotes[quotes.length - 1].date);
-  return quotes.filter((q) => dateKey(q.date) === lastDate);
+  throw new Error(
+    `Failed to fetch S&P 500 data after ${MAX_RETRIES} attempts: ${lastError?.message || lastError}`
+  );
 }
 
 /**
