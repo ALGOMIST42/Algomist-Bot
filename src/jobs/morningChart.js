@@ -11,7 +11,7 @@ const CHANNEL_ID = process.env.MORNING_CHART_CHANNEL_ID;
 
 // Default: 7:00 AM, Monday–Friday, in the timezone set below.
 // Cron format: minute hour day-of-month month day-of-week
-const CRON_SCHEDULE = "0 7 * * 1-5";
+const CRON_SCHEDULE = "0 9 * * 1-5";
 const TIMEZONE = "America/New_York";
 
 export async function postMorningChart(client) {
