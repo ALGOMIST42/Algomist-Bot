@@ -2,20 +2,16 @@
 //
 // Fetches the most recent 1-minute S&P 500 session (^GSPC), computes a
 // volume-weighted VWAP and ±1 / ±1.5 / ±2 standard-deviation bands around
-// it, and renders the result as a chart image (PNG buffer) ready to send
-// as a Discord attachment.
+// it, and renders the result as a chart image (PNG buffer) via QuickChart's
+// hosted rendering API — no native dependencies (no "canvas" package),
+// which avoids the build issues that package causes on platforms like
+// Railway.
 
 import yahooFinance from "yahoo-finance2";
-import { ChartJSNodeCanvas } from "chartjs-node-canvas";
 
+const QUICKCHART_URL = "https://quickchart.io/chart";
 const WIDTH = 1200;
 const HEIGHT = 650;
-
-const chartCanvas = new ChartJSNodeCanvas({
-  width: WIDTH,
-  height: HEIGHT,
-  backgroundColour: "#0b0f1a",
-});
 
 /**
  * Pulls the last few days of 1-minute bars for the S&P 500 and returns
@@ -141,7 +137,6 @@ function buildChartConfig(data) {
       ],
     },
     options: {
-      responsive: false,
       plugins: {
         legend: {
           labels: { color: "#e5e7eb", font: { size: 12 } },
@@ -169,11 +164,30 @@ function buildChartConfig(data) {
 
 /**
  * Public entry point: fetches data, computes VWAP + bands, and returns a
- * PNG image buffer ready to attach to a Discord message.
+ * PNG image buffer (rendered by QuickChart's hosted API) ready to attach
+ * to a Discord message.
  */
 export async function generateSp500VwapChartBuffer() {
   const bars = await fetchLatestSessionBars();
   const data = computeVwapAndBands(bars);
   const config = buildChartConfig(data);
-  return chartCanvas.renderToBuffer(config);
+
+  const response = await fetch(QUICKCHART_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chart: config,
+      width: WIDTH,
+      height: HEIGHT,
+      backgroundColor: "#0b0f1a",
+      format: "png",
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`QuickChart render failed: HTTP ${response.status}`);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  return Buffer.from(arrayBuffer);
 }
